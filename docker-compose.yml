@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # API GATEWAY SERVICE
+  # ============================================
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - TRANSACTION_SERVICE_URL=http://transaction-service:3001
+      - LEDGER_SERVICE_URL=http://ledger-service:3002
+    depends_on:
+      - transaction-service
+      - ledger-service
+      - rabbitmq
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # ============================================
+  # TRANSACTION SERVICE
+  # ============================================
+  transaction-service:
+    build: ./transaction-service
+    container_name: transaction-service
+    ports:
+      - "3001:3001"
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+      - LEDGER_SERVICE_URL=http://ledger-service:3002
+    depends_on:
+      - rabbitmq
+      - ledger-service
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # ============================================
+  # LEDGER SERVICE
+  # ============================================
+  ledger-service:
+    build: ./ledger-service
+    container_name: ledger-service
+    ports:
+      - "3002:3002"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ledgerdb
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # ============================================
+  # MESSAGE BROKER (RabbitMQ)
+  # ============================================
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - payment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # DATABASE (PostgreSQL)
+  # ============================================
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ledgerdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - payment-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  payment-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
