@@ -1,16 +1,16 @@
-// ============================================
-// TRANSACTION SERVICE
-// ============================================
-// This service processes payment transactions and emits events
+// TRANSACTION SERVICE - ITERATION 2
+// This service processes payment transactions and EMITS events
 // to RabbitMQ for asynchronous ledger recording.
-// ============================================
 
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { v4: uuidv4 } = require('uuid');
 const amqp = require('amqplib');
-const axios = require('axios');
+
+// CHANGED: axios REMOVED in Iteration 2
+// In Iteration 1, we used axios to call Ledger Service via HTTP.
+// In Iteration 2, we ONLY use RabbitMQ for communication.
 
 // Shared event definitions
 const {
@@ -25,13 +25,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.TRANSACTION_SERVICE_PORT || 3001;
 
-const LEDGER_SERVICE_URL = process.env.LEDGER_SERVICE_URL || 'http://localhost:3002';
-const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672';
+// CHANGED: LEDGER_SERVICE_URL is NO LONGER USED
+// In Iteration 2, we do NOT call Ledger Service directly.
+// Instead, we publish events to RabbitMQ.
+const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@rabbitmq:5672';
 
 // In-memory store (for prototype purposes)
 const transactions = new Map();
 
-// Middleware
+// MIDDLEWARE
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -52,13 +54,16 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Process payment
+// PROCESS PAYMENT ENDPOINT
+// CHANGED: In Iteration 2, this endpoint publishes events to RabbitMQ
+// instead of calling Ledger Service via HTTP.
 app.post('/transaction/process', async (req, res) => {
     try {
         const { userId, amount, idempotencyKey } = req.body;
         
         console.log(`[Transaction Service] Processing payment: userId=${userId}, amount=${amount}, idempotencyKey=${idempotencyKey}`);
         
+        // Validate required fields
         if (!userId || !amount || !idempotencyKey) {
             return res.status(400).json({
                 error: 'Missing required fields',
@@ -66,7 +71,7 @@ app.post('/transaction/process', async (req, res) => {
             });
         }
         
-        // Idempotency check
+        // IDEMPOTENCY CHECK 
         if (transactions.has(idempotencyKey)) {
             console.log(`[Transaction Service] Duplicate request detected: ${idempotencyKey}`);
             return res.status(409).json({
@@ -76,7 +81,7 @@ app.post('/transaction/process', async (req, res) => {
             });
         }
         
-        // Create transaction record
+        // CREATE TRANSACTION RECORD (UNCHANGED)
         const transactionId = uuidv4();
         const status = 'completed';
         const timestamp = new Date().toISOString();
@@ -94,7 +99,8 @@ app.post('/transaction/process', async (req, res) => {
         
         console.log(`[Transaction Service] Transaction created: ${transactionId}`);
         
-        // Publish event to RabbitMQ
+        // PUBLISH EVENT TO RABBITMQ (NON-BLOCKING)
+        console.log(`[Transaction Service] Publishing payment.completed event for ${transactionId}`);
         await publishEvent(PAYMENT_COMPLETED, {
             transactionId,
             userId,
@@ -103,10 +109,11 @@ app.post('/transaction/process', async (req, res) => {
             idempotencyKey
         });
         
+        // IMMEDIATE RESPONSE (NON-BLOCKING)
         res.status(201).json({
             status: 'success',
             transaction,
-            message: 'Transaction processed successfully'
+            message: 'Transaction processed successfully (async)'
         });
         
     } catch (error) {
@@ -118,7 +125,7 @@ app.post('/transaction/process', async (req, res) => {
     }
 });
 
-// Get transaction
+// GET TRANSACTION ENDPOINT (UNCHANGED)
 app.get('/transaction/:id', (req, res) => {
     try {
         const { id } = req.params;
@@ -153,7 +160,7 @@ app.get('/transaction/:id', (req, res) => {
     }
 });
 
-// RabbitMQ event publisher
+// RABBITMQ EVENT PUBLISHER (UNCHANGED)
 async function publishEvent(eventType, payload) {
     let connection = null;
     let channel = null;
@@ -193,12 +200,11 @@ async function publishEvent(eventType, payload) {
     }
 }
 
-// Start server
+// START SERVER (UNCHANGED)
 app.listen(PORT, () => {
     console.log(`[Transaction Service] Running on port ${PORT}`);
-    console.log(`[Transaction Service] Ledger Service URL: ${LEDGER_SERVICE_URL}`);
     console.log(`[Transaction Service] RabbitMQ URL: ${RABBITMQ_URL}`);
-    console.log(`[Transaction Service] Ready to process transactions`);
+    console.log(`[Transaction Service] Ready to process transactions (Iteration 2 - Async)`);
 });
 
 module.exports = { app, publishEvent, transactions };

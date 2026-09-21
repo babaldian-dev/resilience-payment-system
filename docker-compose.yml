@@ -1,9 +1,7 @@
 version: '3.8'
 
 services:
-  # ============================================
   # API GATEWAY SERVICE
-  # ============================================
   api-gateway:
     build: ./api-gateway
     container_name: api-gateway
@@ -20,9 +18,7 @@ services:
       - payment-network
     restart: unless-stopped
 
-  # ============================================
   # TRANSACTION SERVICE
-  # ============================================
   transaction-service:
     build: ./transaction-service
     container_name: transaction-service
@@ -38,9 +34,7 @@ services:
       - payment-network
     restart: unless-stopped
 
-  # ============================================
-  # LEDGER SERVICE
-  # ============================================
+  # LEDGER SERVICE 
   ledger-service:
     build: ./ledger-service
     container_name: ledger-service

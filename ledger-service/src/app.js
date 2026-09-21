@@ -1,9 +1,6 @@
-// ============================================
-// LEDGER SERVICE
-// ============================================
+// LEDGER SERVICE - ITERATION 2
 // This service records transactions in the ledger.
-// It consumes events from RabbitMQ and stores them in PostgreSQL.
-// ============================================
+// It CONSUMES events from RabbitMQ instead of receiving HTTP calls.
 
 const express = require('express');
 const cors = require('cors');
@@ -25,8 +22,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.LEDGER_SERVICE_PORT || 3002;
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ledgerdb';
-const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@postgres:5432/ledgerdb';
+const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@rabbitmq:5672';
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -47,7 +44,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health check
+// HEALTH CHECK ENDPOINT (UNCHANGED)
 app.get('/health', async (req, res) => {
     try {
         await pool.query('SELECT 1');
@@ -67,7 +64,132 @@ app.get('/health', async (req, res) => {
     }
 });
 
-// Initialize database schema
+// USER VALIDATION ENDPOINT (UNCHANGED)
+app.get('/users/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        console.log(`[Ledger Service] Checking user: ${userId}`);
+        
+        const result = await pool.query(
+            'SELECT id, balance FROM users WHERE id = $1',
+            [userId]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: 'User not found',
+                message: `User ${userId} does not exist`
+            });
+        }
+        
+        res.status(200).json({
+            status: 'success',
+            user: result.rows[0]
+        });
+        
+    } catch (error) {
+        console.error('[Ledger Service] Error fetching user:', error.message);
+        res.status(500).json({
+            error: 'Failed to fetch user',
+            message: error.message
+        });
+    }
+});
+
+// RECORD LEDGER ENTRY FUNCTION
+// CHANGED: In Iteration 2, this function is called by the RabbitMQ consumer
+// instead of by an HTTP endpoint.
+async function recordLedgerEntry(transactionData) {
+    const client = await pool.connect();
+    try {
+        const { transactionId, userId, amount, timestamp, idempotencyKey } = transactionData;
+        
+        console.log(`[Ledger Service] Recording ledger entry for transaction ${transactionId}`);
+        
+        await client.query('BEGIN');
+        
+        const transactionResult = await client.query(
+            `INSERT INTO transactions (id, user_id, amount, status, idempotency_key, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *`,
+            [transactionId, userId, amount, 'completed', idempotencyKey, timestamp]
+        );
+        
+        await client.query(
+            `INSERT INTO ledger_entries (transaction_id, account, amount, entry_type)
+             VALUES ($1, $2, $3, $4)`,
+            [transactionId, 'user_account', amount, 'debit']
+        );
+        
+        await client.query(
+            `UPDATE users SET balance = balance - $1 WHERE id = $2`,
+            [amount, userId]
+        );
+        
+        await client.query('COMMIT');
+        
+        console.log(`[Ledger Service] Ledger entry recorded successfully for ${transactionId}`);
+        
+        return transactionResult.rows[0];
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[Ledger Service] Failed to record ledger entry:', error.message);
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+// RABBITMQ EVENT CONSUMER
+// CHANGED: In Iteration 2, Ledger Service CONSUMES events from RabbitMQ
+// instead of exposing an HTTP endpoint.
+async function consumeEvents() {
+    let connection = null;
+    let channel = null;
+    
+    try {
+        console.log('[Ledger Service] Connecting to RabbitMQ...');
+        connection = await amqp.connect(RABBITMQ_URL);
+        channel = await connection.createChannel();
+        
+        await channel.assertExchange('payment_events', 'topic', { durable: true });
+        
+        const queue = await channel.assertQueue('ledger_queue', { durable: true });
+        
+        await channel.bindQueue(queue.queue, 'payment_events', PAYMENT_COMPLETED);
+        
+        console.log(`[Ledger Service] Listening for events: ${PAYMENT_COMPLETED}`);
+        
+        await channel.consume(queue.queue, async (msg) => {
+            if (msg) {
+                try {
+                    const content = JSON.parse(msg.content.toString());
+                    console.log(`[Ledger Service] Received event: ${content.eventType}`);
+                    
+                    if (content.eventType === PAYMENT_COMPLETED) {
+                        // RECORD LEDGER ENTRY (ASYNC)
+                        // In Iteration 2, this is the ONLY way Ledger Service
+                        // receives transaction data.
+                        await recordLedgerEntry(content.payload);
+                    }
+                    
+                    channel.ack(msg);
+                    
+                } catch (error) {
+                    console.error('[Ledger Service] Error processing event:', error.message);
+                    channel.nack(msg, false, true);
+                }
+            }
+        }, { noAck: false });
+        
+    } catch (error) {
+        console.error('[Ledger Service] RabbitMQ consumer error:', error.message);
+        setTimeout(consumeEvents, 5000);
+    }
+}
+
+// INITIALIZE DATABASE SCHEMA (UNCHANGED)
 async function initializeDatabase() {
     try {
         console.log('[Ledger Service] Initializing database schema...');
@@ -121,93 +243,7 @@ async function initializeDatabase() {
     }
 }
 
-// Record ledger entry
-async function recordLedgerEntry(transactionData) {
-    const client = await pool.connect();
-    try {
-        const { transactionId, userId, amount, timestamp, idempotencyKey } = transactionData;
-        
-        console.log(`[Ledger Service] Recording ledger entry for transaction ${transactionId}`);
-        
-        await client.query('BEGIN');
-        
-        await client.query(
-            `INSERT INTO transactions (id, user_id, amount, status, idempotency_key, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING *`,
-            [transactionId, userId, amount, 'completed', idempotencyKey, timestamp]
-        );
-        
-        await client.query(
-            `INSERT INTO ledger_entries (transaction_id, account, amount, entry_type)
-             VALUES ($1, $2, $3, $4)`,
-            [transactionId, 'user_account', amount, 'debit']
-        );
-        
-        await client.query(
-            `UPDATE users SET balance = balance - $1 WHERE id = $2`,
-            [amount, userId]
-        );
-        
-        await client.query('COMMIT');
-        
-        console.log(`[Ledger Service] Ledger entry recorded successfully for ${transactionId}`);
-        
-        return transactionResult.rows[0];
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('[Ledger Service] Failed to record ledger entry:', error.message);
-        throw error;
-    } finally {
-        client.release();
-    }
-}
-
-// RabbitMQ event consumer
-async function consumeEvents() {
-    let connection = null;
-    let channel = null;
-    
-    try {
-        console.log('[Ledger Service] Connecting to RabbitMQ...');
-        connection = await amqp.connect(RABBITMQ_URL);
-        channel = await connection.createChannel();
-        
-        await channel.assertExchange('payment_events', 'topic', { durable: true });
-        
-        const queue = await channel.assertQueue('ledger_queue', { durable: true });
-        
-        await channel.bindQueue(queue.queue, 'payment_events', PAYMENT_COMPLETED);
-        
-        console.log(`[Ledger Service] Listening for events: ${PAYMENT_COMPLETED}`);
-        
-        await channel.consume(queue.queue, async (msg) => {
-            if (msg) {
-                try {
-                    const content = JSON.parse(msg.content.toString());
-                    console.log(`[Ledger Service] Received event: ${content.eventType}`);
-                    
-                    if (content.eventType === PAYMENT_COMPLETED) {
-                        await recordLedgerEntry(content.payload);
-                    }
-                    
-                    channel.ack(msg);
-                    
-                } catch (error) {
-                    console.error('[Ledger Service] Error processing event:', error.message);
-                    channel.nack(msg, false, true);
-                }
-            }
-        }, { noAck: false });
-        
-    } catch (error) {
-        console.error('[Ledger Service] RabbitMQ consumer error:', error.message);
-        setTimeout(consumeEvents, 5000);
-    }
-}
-
-// Start server
+// START SERVER
 async function startServer() {
     try {
         await initializeDatabase();
@@ -217,6 +253,7 @@ async function startServer() {
             console.log(`[Ledger Service] Running on port ${PORT}`);
             console.log(`[Ledger Service] Database connected`);
             console.log(`[Ledger Service] RabbitMQ connected`);
+            console.log(`[Ledger Service] Ready to consume events (Iteration 2 - Async)`);
         });
         
     } catch (error) {
