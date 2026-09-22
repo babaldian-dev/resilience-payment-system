@@ -36,11 +36,20 @@ const swaggerOptions = {
         info: {
             title: 'Payment System API',
             version: '1.0.0',
-            description: 'API documentation for the payment system prototype.',
+            description: 'Final Year Project by Nura Abubakar Ahmad (FCP/CSE/22/1002), supervised by Mal. Abdulbasit Nuhu Musa, Department of Software Engineering, Federal University Dutse.',
+            contact: {
+                name: 'Nura Abubakar Ahmad',
+                email: 'nuraaahmad02@gmail.com',
+                url: 'https://github.com/babaldian-dev/resilience-payment-system'
+            },
+            license: {
+                name: 'Final Year Project',
+                url: 'https://github.com/babaldian-dev/resilience-payment-system'
+            }
         },
         servers: [
             {
-                url: 'https://api-gateway-production-c95d.up.railway.app', // Your Railway URL
+                url: 'https://api-gateway-production-c95d.up.railway.app', // My Railway URL
                 description: 'Production server'
             }
         ]
