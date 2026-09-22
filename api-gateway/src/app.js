@@ -1,9 +1,6 @@
-// ============================================
 // API GATEWAY SERVICE
-// ============================================
 // This service acts as the single entry point for all client requests.
 // It routes incoming requests to the appropriate backend services.
-// ============================================
 
 const express = require('express');
 const cors = require('cors');
@@ -19,16 +16,17 @@ const PORT = process.env.API_GATEWAY_PORT || 3000;
 const TRANSACTION_SERVICE_URL = process.env.TRANSACTION_SERVICE_URL || 'http://localhost:3001';
 const LEDGER_SERVICE_URL = process.env.LEDGER_SERVICE_URL || 'http://localhost:3002';
 
-// ============================================
 // MIDDLEWARE
-// ============================================
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============================================
+// Root endpoint — redirect to Swagger UI
+app.get('/', (req, res) => {
+    res.redirect('/api-docs');
+});
+
 // SWAGGER API DOCUMENTATION
-// ============================================
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
 
@@ -71,17 +69,13 @@ const swaggerOptions = {
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// ============================================
 // REQUEST LOGGING MIDDLEWARE
-// ============================================
 app.use((req, res, next) => {
     console.log(`[API Gateway] ${req.method} ${req.path}`);
     next();
 });
 
-// ============================================
 // HEALTH CHECK ENDPOINT
-// ============================================
 /**
  * @swagger
  * /health:
@@ -116,9 +110,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-// ============================================
 // PAYMENT PROCESSING ENDPOINT
-// ============================================
 /**
  * @swagger
  * /api/payment:
@@ -178,9 +170,7 @@ app.post('/api/payment', async (req, res) => {
     }
 });
 
-// ============================================
 // TRANSACTION STATUS ENDPOINT
-// ============================================
 /**
  * @swagger
  * /api/status/{id}:
@@ -225,9 +215,7 @@ app.get('/api/status/:id', async (req, res) => {
     }
 });
 
-// ============================================
 // START THE SERVER
-// ============================================
 app.listen(PORT, () => {
     console.log(`[API Gateway] Running on port ${PORT}`);
     console.log(`[API Gateway] Transaction Service URL: ${TRANSACTION_SERVICE_URL}`);
