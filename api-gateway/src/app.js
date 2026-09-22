@@ -36,30 +36,12 @@ const swaggerOptions = {
         info: {
             title: 'Payment System API',
             version: '1.0.0',
-            description: 'API documentation for the payment system prototype. This API processes payments, checks transaction status, and provides health monitoring.',
-            contact: {
-                name: 'Nura Abubakar Ahmad',
-                email: 'nuraaahmad02@gmail.com'
-            }
+            description: 'API documentation for the payment system prototype.',
         },
         servers: [
             {
-                url: 'http://localhost:3000',
-                description: 'Local development server'
-            }
-        ],
-        tags: [
-            {
-                name: 'Payment',
-                description: 'Payment processing endpoints'
-            },
-            {
-                name: 'Status',
-                description: 'Transaction status endpoints'
-            },
-            {
-                name: 'Health',
-                description: 'Service health check endpoints'
+                url: 'https://api-gateway-production-c95d.up.railway.app', // Your Railway URL
+                description: 'Production server'
             }
         ]
     },
